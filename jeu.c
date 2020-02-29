@@ -35,7 +35,7 @@ struct config {
 };
 
 // compteur de coups effectués
-int num_coup = 0;
+int coups_jouees = 0;
 
 // vecteurs des déplacements par type de piece ...
 // cavalier
@@ -124,158 +124,137 @@ int feuille( struct config conf, int *cout )
 
 }  // feuille
 
-// V�rifie si la case (x,y) est menacée par une des pièces du joueur 'mode'
-int caseMenaceePar( int mode, int x, int y, struct config *conf )
-{
-	int i, j, a, b, stop;
-
-	// menace par le roi ...
-	for (i=0; i<8; i += 1) {
-	   // traitement des 8 directions paires et impaires
-	   a = x + D[i][0];
-	   b = y + D[i][1];
-	   if ( a >= 0 && a <= 7 && b >= 0 && b <= 7 )
-		if ( conf->mat[a][b]*mode == 'r' ) return 1;
-	} // for
-
-	// menace par cavalier ...
-	for (i=0; i<8; i++)
-	   if ( x+dC[i][0] <= 7 && x+dC[i][0] >= 0 && y+dC[i][1] <= 7 && y+dC[i][1] >= 0 )
-		if ( conf->mat[ x+dC[i][0] ] [ y+dC[i][1] ] * mode == 'c' )
-		   return 1;
-
-	// menace par pion ...
-	if ( (x-mode) >= 0 && (x-mode) <= 7 && y > 0 && conf->mat[x-mode][y-1]*mode == 'p' )
-	   return 1;
-	if ( (x-mode) >= 0 && (x-mode) <= 7 && y < 7 && conf->mat[x-mode][y+1]*mode == 'p' )
-	   return 1;
-
-	// menace par fou, tour ou reine ...
-	for (i=0; i<8; i += 1) {
-	   // traitement des 8 directions paires et impaires
-	   stop = 0;
-	   a = x + D[i][0];
-	   b = y + D[i][1];
-	   while ( !stop && a >= 0 && a <= 7 && b >= 0 && b <= 7 )
-		if ( conf->mat[a][b] != 0 )  stop = 1;
-		else {
-		    a = a + D[i][0];
-		    b = b + D[i][1];
-		}
-	   if ( stop )  {
-		if ( conf->mat[a][b]*mode == 'f' && i % 2 != 0 ) return 1;
-		if ( conf->mat[a][b]*mode == 't' && i % 2 == 0 ) return 1;
-		if ( conf->mat[a][b]*mode == 'n' ) return 1;
-	   }
-	} // for
-
-	// sinon, aucune menace ...
-	return 0;
-
-} // fin de caseMenaceePar
-
 
 /* Retourne une estimation de la configuration conf */
 int estim( struct config conf )
 {
-	/*En analysant quelques statistique sur les parties des jeux d'echec,
-	  On se rend compte que la moyenne des coups en une partie c'est 41.
-	  Donc on décidé de diviser la partie en trois:
-		-Début de partie: les 25 premiers coups
-		-Milieu de partie: entre le 26ème et le 35ème coup.
-		-Fin de partie à partir du 36ème coup
-	  Pour chaque intervalle on a adopté une stratégie pour construire la fonction d'estimation.	
+	/*
+		En analysant quelques statistique sur les parties des jeux d'echec,
+		On se rend compte que la moyenne des coups en une partie c'est 41.
+		Donc on décidé de diviser la partie en trois:
+			-Début de partie: les 20 premiers coups
+			-Milieu de partie: entre le 21ème et le 30ème coup.
+			-Fin de partie à partir du 31ème coup
+		Pour chaque intervalle on a adopté une stratégie pour construire la fonction d'estimation.	
 	 */
 
-	/* Dans le début de la partie on prend en considération
-    le nombre de pièce avec leurs poids avec leurs positionnement,
-	 l'occupation du centre ainsi que la défence du roi. 
+	/* 	
+		Dans le début de la partie on prend en considération
+    	le nombre de pièce avec leurs poids et leurs positionnement,
+	 	l'occupation du centre ainsi que la défence du roi et les roques. 
 	*/
-	if ( num_coup < 25 ){
+	if ( coups_jouees < 20 ){
 		int i, j, a, b, stop, bns, ScrQte, ScrDisp, ScrDfs, ScrDivers, Score;
 		int pionB = 0, pionN = 0, cfB = 0, cfN = 0, tB = 0, tN = 0, nB = 0, nN = 0;
 		int occCentreB = 0, occCentreN = 0, protectRB = 0, protectRN = 0, divB = 0, divN = 0;
 
-		// parties : nombre de pièces et occupation du centre
+		/*
+		Nombre de pièces et occupation du centre:
+			On parcours l'échiquier et on calcule le nombre de pièce ainsi que le bonus d'occupation du centre
+			Pour le bonus d'occupation du centre, on l'initialise à 1 pour les cases avec i entre 2 et 5 et j entre 0 et 7
+			et on l'initialise à 2 pour i entre 3 et 4 et j entre 2 et 5
+			mis à part les pions, on multiplie ce bonus fois 4 pour les autres types de pièces.
+			Les poids des pièces sont les suivants : 
+				pion : 			2
+				Cavalier | Fou: 6
+				Tour : 			8
+				Reine : 		20
+			On multiplie le nombre des pièces fois leurs poids et on fait la différence entre les blancs et les noirs
+			Le maximum de la variable ScrQte est donc égal à 8*2+6*4+2*8+20*1 = 76
+			Et le maximum de la variable ScrDisp qui représente la différence dans l'occupation du centre est donc 42
+		*/
+	
 		for (i=0; i<8; i++)
-		for (j=0; j<8; j++) {
-			bns = 0;  // bonus pour l'occupation du centre de l'échiquier
-			if (i>1 && i<6 && j>=0 && j<=7 ) bns = 1;
-			if (i>2 && i<5 && j>=2 && j<=5 ) bns = 2;
-			switch (conf.mat[i][j]) {
-			case 'p' : pionB++; occCentreB += bns;  break;
-			case 'c' :
-			case 'f' : cfB++; occCentreB += 4*bns; break;
-			case 't' : tB++; break;
-			case 'n' : nB++; occCentreB += 4*bns; break;
+			for (j=0; j<8; j++) {
+				bns = 0;  
+				if (i>1 && i<6 && j>=0 && j<=7 ) bns = 1;
+				if (i>2 && i<5 && j>=2 && j<=5 ) bns = 2;
+				switch (conf.mat[i][j]) {
+				case 'p' : pionB++; occCentreB += bns;  break;
+				case 'c' :
+				case 'f' : cfB++; occCentreB += 4*bns; break;
+				case 't' : tB++; break;
+				case 'n' : nB++; occCentreB += 4*bns; break;
 
-			case -'p' : pionN++; occCentreN += bns; break;
-			case -'c' :
-			case -'f' : cfN++; occCentreN += 4*bns; break;
-			case -'t' : tN++; break;
-			case -'n' : nN++; occCentreN += 4*bns; break;
+				case -'p' : pionN++; occCentreN += bns; break;
+				case -'c' :
+				case -'f' : cfN++; occCentreN += 4*bns; break;
+				case -'t' : tN++; break;
+				case -'n' : nN++; occCentreN += 4*bns; break;
 			}
 		}
-
 		ScrQte = ( (pionB*2 + cfB*6 + tB*8 + nB*20) - (pionN*2 + cfN*6 + tN*8 + nN*20) );
-		// donc ScrQteMax ==> 76
-
 		ScrDisp = occCentreB - occCentreN;
-		// donc ScrDispMax ==> 42
 
-		// partie : défense du roi B ...
+		/*	
+		Défense du roi:
+			D Matrice des déplacements possibles pour le roi
+			Les attributs conf.xrB ... contiennent l'emplacement du roi ( Blanc ou Noir )
+			Ici on a une boucle qui fait déplacer le roi dans toute les directions possibles le maximum possible
+			On s'arrete lorsque on rencotre une pièce
+			On incrémente la variable protectRB (resp protectRN) lorsque la pièce rencontrée est blanche (resp noire)
+			A la fin on calcule la différence entre protectRB et protectRN
+			Le maximum de cette différence est 8
+		*/
 		for (i=0; i<8; i += 1) {
-		// traitement des 8 directions paires et impaires
-		stop = 0;
-		a = conf.xrB + D[i][0];
-		b = conf.yrB + D[i][1];
-		while ( !stop && a >= 0 && a <= 7 && b >= 0 && b <= 7 )
-			if ( conf.mat[a][b] != 0 )  stop = 1;
-			else {
-				a = a + D[i][0];
-				b = b + D[i][1];
-			}
-		if ( stop )
-			if ( conf.mat[a][b] > 0 ) protectRB++;
-		} // for
+			stop = 0;
+			a = conf.xrB + D[i][0];
+			b = conf.yrB + D[i][1];
+			while ( !stop && a >= 0 && a <= 7 && b >= 0 && b <= 7 )
+				if ( conf.mat[a][b] != 0 )  stop = 1;
+				else {
+					a = a + D[i][0];
+					b = b + D[i][1];
+				}
+			if ( stop )
+				if ( conf.mat[a][b] > 0 ) protectRB++;
+		}
 
-		// partie : défense du roi N ...
 		for (i=0; i<8; i += 1) {
-		// traitement des 8 directions paires et impaires
-		stop = 0;
-		a = conf.xrN + D[i][0];
-		b = conf.yrN + D[i][1];
-		while ( !stop && a >= 0 && a <= 7 && b >= 0 && b <= 7 )
-			if ( conf->mat[a][b] != 0 )  stop = 1;
-			else {
-				a = a + D[i][0];
-				b = b + D[i][1];
-			}
-		if ( stop )
-			if ( conf.mat[a][b] < 0 ) protectRN++;
-		} // for
+			stop = 0;
+			a = conf.xrN + D[i][0];
+			b = conf.yrN + D[i][1];
+			while ( !stop && a >= 0 && a <= 7 && b >= 0 && b <= 7 )
+				if ( conf.mat[a][b] != 0 )  stop = 1;
+				else {
+					a = a + D[i][0];
+					b = b + D[i][1];
+				}
+			if ( stop )
+				if ( conf.mat[a][b] < 0 ) protectRN++;
+		}
 
 		ScrDfs = protectRB - protectRN;
-		// donc ScrDfsMax ==> 8
 
-		// Partie : autres consid�rations ...
-		if ( conf.roqueB == 'e' ) divB = 24;	// favoriser les roques B
+		/*
+			Les roques:
+				'g'rand roque non réalisable 	==> 10  
+				'p'etit roque non réalisable 	==> 10 
+		   		'n'on réalisable des 2 cotés	==> 0 
+				'r'éalisable (valeur initiale)	==> 12 
+				'e'ffectué						==> 24 
+			Le maximum alors est 24
+		*/
+		if ( conf.roqueB == 'e' ) divB = 24;
 		if ( conf.roqueB == 'r' ) divB = 12;
 		if ( conf.roqueB == 'p' || conf.roqueB == 'g' ) divB = 10;
 
-		if ( conf.roqueN == 'e' ) divN = 24;	// favoriser les roques N
+		if ( conf.roqueN == 'e' ) divN = 24;
 		if ( conf.roqueN == 'r' ) divN = 12;
 		if ( conf.roqueN == 'p' || conf.roqueN == 'g' ) divN = 10;
-
 		ScrDivers = divB - divN;
-		// donc ScrDiversMax ==> 24
 
+		/*
+			A la fin on calcule le total en donnant une coéfficient 4 à ScrQte vu que c'est la plus importante
+			Pour se réduire à l'intervalle [-100,100] :
+				score ------> 4*76+42+8+24 ( Les maximum déja expliqué lors de chaque étape )
+				x	  ------> 100
+				x = score * 100 / 4*76+42+8+24
+			Vu que ce n'est qu'une éstimation et que la valeur 100 est réservé aux feuilles, on va rétricir l'intervalle à [-95,95]
+		*/
 		Score = (4*ScrQte + ScrDisp + ScrDfs + ScrDivers) * 100.0/(4*76+42+8+24);
-		// pour les poids des pièces et le facteur multiplicatif voir commentaire dans estim1
-
-			if (Score > 95 ) Score = 95;
-			if (Score < -95 ) Score = -95;
-
+		if (Score > 95 ) Score = 95;
+		if (Score < -95 ) Score = -95;
 		return Score;
 	}
 
@@ -285,107 +264,113 @@ int estim( struct config conf )
 		et l'occupation du centre. On ignore par rapport au debut de partie 
 		la défense du roi et les roques afin de commencer à favoriser l'attaque.
 	*/
-	if ( num_coup >= 25 && num_coup < 35 ){
+	if ( coups_jouees >= 20 && coups_jouees < 30 ){
 		int i, j, a, b, stop, bns, ScrQte, ScrDisp, ScrDfs, ScrDivers, Score;
 		int pionB = 0, pionN = 0, cfB = 0, cfN = 0, tB = 0, tN = 0, nB = 0, nN = 0;
 		int occCentreB = 0, occCentreN = 0, protectRB = 0, protectRN = 0, divB = 0, divN = 0;
 
-		// parties : nombre de pièces et occupation du centre
+		/*
+		Nombre de pièces et occupation du centre: (Expliquée dans la partie précédente)
+		*/
 		for (i=0; i<8; i++)
-		for (j=0; j<8; j++) {
-			bns = 0;  // bonus pour l'occupation du centre de l'échiquier
-			if (i>1 && i<6 && j>=0 && j<=7 ) bns = 1;
-			if (i>2 && i<5 && j>=2 && j<=5 ) bns = 2;
-			switch (conf.mat[i][j]) {
-			case 'p' : pionB++; occCentreB += bns;  break;
-			case 'c' :
-			case 'f' : cfB++; occCentreB += 4*bns; break;
-			case 't' : tB++; break;
-			case 'n' : nB++; occCentreB += 4*bns; break;
+			for (j=0; j<8; j++) {
+				bns = 0;  
+				if (i>1 && i<6 && j>=0 && j<=7 ) bns = 1;
+				if (i>2 && i<5 && j>=2 && j<=5 ) bns = 2;
+				switch (conf.mat[i][j]) {
+				case 'p' : pionB++; occCentreB += bns;  break;
+				case 'c' :
+				case 'f' : cfB++; occCentreB += 4*bns; break;
+				case 't' : tB++; break;
+				case 'n' : nB++; occCentreB += 4*bns; break;
 
-			case -'p' : pionN++; occCentreN += bns; break;
-			case -'c' :
-			case -'f' : cfN++; occCentreN += 4*bns; break;
-			case -'t' : tN++; break;
-			case -'n' : nN++; occCentreN += 4*bns; break;
-			}
+				case -'p' : pionN++; occCentreN += bns; break;
+				case -'c' :
+				case -'f' : cfN++; occCentreN += 4*bns; break;
+				case -'t' : tN++; break;
+				case -'n' : nN++; occCentreN += 4*bns; break;
+				}
 		}
 
-		// Somme pondérée de pièces de chaque joueur.
-		// Les poids sont fixés comme suit: pion:2  cavalier/fou:6  tour:8  et  reine:20
-		// Le facteur 100/(4*76+42) pour ne pas sortir de l'intervalle ]-100 , +100[
 		ScrQte = ( (pionB*2 + cfB*6 + tB*8 + nB*20) - (pionN*2 + cfN*6 + tN*8 + nN*20) );
-
 		ScrDisp = occCentreB - occCentreN;
 
 		Score = (4*ScrQte + ScrDisp) * 100.0/(4*76+42);
-		
-
-			if (Score > 95 ) Score = 95;
-			if (Score < -95 ) Score = -95;
-
+		if (Score > 95 ) Score = 95;
+		if (Score < -95 ) Score = -95;
 		return Score;
 	}
 
-	/* Et enfin, à la fin de la partie on utilise cette estimation qui
-	   favorise l'attaque explicitement en utilisant la fonction case
-	   menacée par.
+	/* 
+		Et enfin, à la fin de la partie on utilise cette estimation qui
+	   	favorise l'attaque explicitement en utilisant la fonction case
+	   	menacée par.
 	*/
-	if ( num_coup >= 35 ){
-		int i, j, Score;
+	if ( coups_jouees >= 30 ){
+		int i, j, Score, ScrQte;
 		int pionB = 0, pionN = 0, cfB = 0, cfN = 0, tB = 0, tN = 0, nB = 0, nN = 0;
 		int npmB = 0, npmN = 0;
 
-		// parties : nombre de pi�ces
+		/*
+		Nombre de pièces : (Expliquée dans la partie précédente)
+		*/
 		for (i=0; i<8; i++)
-		for (j=0; j<8; j++) {
-			switch (conf->mat[i][j]) {
-			case 'p' : pionB++;   break;
-			case 'c' :
-			case 'f' : cfB++;  break;
-			case 't' : tB++; break;
-			case 'n' : nB++;  break;
+			for (j=0; j<8; j++) {
+				switch (conf.mat[i][j]) {
+				case 'p' : pionB++;   break;
+				case 'c' :
+				case 'f' : cfB++;  break;
+				case 't' : tB++; break;
+				case 'n' : nB++;  break;
 
-			case -'p' : pionN++;  break;
-			case -'c' :
-			case -'f' : cfN++;  break;
-			case -'t' : tN++; break;
-			case -'n' : nN++;  break;
-			}
+				case -'p' : pionN++;  break;
+				case -'c' :
+				case -'f' : cfN++;  break;
+				case -'t' : tN++; break;
+				case -'n' : nN++;  break;
+				}
 		}
+		ScrQte = ( (pionB*2 + cfB*6 + tB*8 + nB*20) - (pionN*2 + cfN*6 + tN*8 + nN*20) );
+		/*
+		Favoriser l'attaque en calculant le nombre de case menacées
+			Pion menacé 		=> 1
+			Fou|Cavalier menacé => 3
+			Tour|Reine menacé 	=> 6
+			Roi menacé 			=> 11
 
+			Le max est 11 + 3*6 + 3*4 + 1*8 = 49
+		*/
 		for (i=0; i<8; i++)
-		for (j=0; j<8; j++) {
-			if ( conf.mat[i][j] < 0 && caseMenaceePar(MAX, i, j, conf) ) {
-			npmB++;
-			if ( conf.mat[i][j] == -'c' || conf.mat[i][j] == -'f' )
+			for (j=0; j<8; j++) {
+				if ( conf.mat[i][j] < 0 && caseMenaceePar(MAX, i, j, conf) ) {
 				npmB++;
-			if ( conf.mat[i][j] == -'t' || conf.mat[i][j] == -'n' )
-				npmB += 2;
-			if ( conf.mat[i][j] == -'r' )
-				npmB += 5;
-			}
-			if ( conf.mat[i][j] > 0 && caseMenaceePar(MIN, i, j, conf) ) {
-			npmN++;
-			if ( conf.mat[i][j] == 'c' || conf.mat[i][j] == 'f' )
+				if ( conf.mat[i][j] == -'c' || conf.mat[i][j] == -'f' )
+					npmB += 2;
+				if ( conf.mat[i][j] == -'t' || conf.mat[i][j] == -'n' )
+					npmB += 5;
+				if ( conf.mat[i][j] == -'r' )
+					npmB += 10;
+				}
+				if ( conf.mat[i][j] > 0 && caseMenaceePar(MIN, i, j, conf) ) {
 				npmN++;
-			if ( conf.mat[i][j] == 't' || conf.mat[i][j] == 'n' )
-				npmN += 2;
-			if ( conf.mat[i][j] == 'r' )
-				npmN += 5;
-			}
+				if ( conf.mat[i][j] == 'c' || conf.mat[i][j] == 'f' )
+					npmN += 2;
+				if ( conf.mat[i][j] == 't' || conf.mat[i][j] == 'n' )
+					npmN += 5;
+				if ( conf.mat[i][j] == 'r' )
+					npmN += 10;
+				}
 		}
+		
 
-		Score = ( 4*((pionB*2 + cfB*6 + tB*8 + nB*20) - (pionN*2 + cfN*6 + tN*8 + nN*20)) + \
-			(npmB - npmN) ) * 100.0/(4*76+31);
-
+		Score = ( 4* ScrQte+ (npmB - npmN) ) * 100.0/(4*76+49);
 
 		if (Score > 95) Score = 95;		
 		if (Score < -95) Score = -95;	
 
 		return Score;
 	}
-} // estim
+}
 
 
 /***********************************************************/
@@ -1055,7 +1040,7 @@ int main( int argc, char *argv[] )
    char sy, dy, ch[10];
    int sx, dx, n, i, j, score, stop, cout, cout2, legal, hauteur, sauter;
    int cmin, cmax;
-   num_coup = 0;
+   coups_jouees = 0;
 
    struct config T[100], conf, conf1;
 
@@ -1074,7 +1059,7 @@ int main( int argc, char *argv[] )
    // Boucle principale du dérouleùment d'une partie ...
    stop = 0;
    while ( !stop ) {
-	num_coup++;
+	coups_jouees++;
 	affich( conf );
 
 	// récupérer le coup du joueur ...
